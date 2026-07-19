@@ -68,6 +68,16 @@ header .extlink a:hover{text-decoration:underline}
 .toggle-row button.on{background:var(--teal);color:#06231d;border-color:var(--teal)}
 .toggle-row button.on .pw{color:#0b4a3e}
 
+.statinputs{display:flex;flex-wrap:wrap;gap:10px 22px;margin:10px 0 0}
+.statbox{display:flex;flex-direction:column;gap:3px}
+.statbox .slab{font-size:11px;color:var(--mut);letter-spacing:.06em}
+.statbox input[type=number]{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:7px 10px;font-size:14px;font-weight:800;font-family:inherit;width:110px;font-variant-numeric:tabular-nums}
+.statbox input[type=number]:focus{outline:2px solid var(--teal);outline-offset:1px}
+.statbox input.custom{border-color:var(--org);color:var(--org)}
+.statbox .sref{font-size:10px;color:var(--mut)}
+.statbox .sreset{color:var(--teal);cursor:pointer;text-decoration:underline;margin-left:4px}
+.statbox .sreset:hover{color:#b8f5e8}
+
 #dmghead{font-size:12px;color:var(--mut);margin:14px 0 8px;letter-spacing:.03em;line-height:1.6}
 #dmghead b{color:var(--teal)}
 
@@ -134,6 +144,10 @@ tbody tr:nth-child(even) td{background:rgba(255,255,255,.018)}
  .infocard{font-size:11px}
  .ic-name{font-size:13.5px}
  .toggle-row button{padding:6px 10px;font-size:11px}
+ .statinputs{gap:8px 16px}
+ .statbox input[type=number]{width:96px;font-size:12.5px;padding:6px 8px}
+ .statbox .slab{font-size:10px}
+ .statbox .sref{font-size:9px}
 }
 footer{color:var(--mut);font-size:11px;line-height:1.9;margin-top:18px;max-width:78ch}
 footer b{color:var(--tx)}
@@ -158,6 +172,18 @@ footer b{color:var(--tx)}
  <div id="moveWrap" style="display:none">
   <div class="selector"><span class="lab">技</span></div>
   <div class="mvgrid" id="mvgrid"></div>
+ </div>
+ <div class="statinputs" id="statInputs" style="display:none">
+  <div class="statbox">
+   <span class="slab" id="atkStatLabel">攻撃(A)実数値</span>
+   <input type="number" id="atkStatIn" min="1" max="999" step="1" inputmode="numeric" aria-label="攻撃側の攻撃実数値">
+   <span class="sref" id="atkStatRef"></span>
+  </div>
+  <div class="statbox">
+   <span class="slab">素早さ(S)実数値</span>
+   <input type="number" id="speIn" min="1" max="999" step="1" inputmode="numeric" aria-label="攻撃側の素早さ実数値">
+   <span class="sref" id="speRef"></span>
+  </div>
  </div>
  <div class="toggle-row" id="itemToggle" style="display:none">
   <span class="lab">持ち物補正</span>
@@ -282,9 +308,9 @@ function atkGroupSorted(jp){
 }
 
 /* ========== ダメージ計算コア ========== */
-// 攻撃実数値（特性・持ち物補正込み）
-function effectiveAtkStat(atkRow, cat, itemMode){
- let At = cat==='physical' ? atkRow.atk : atkRow.spa;
+// 攻撃実数値（特性・持ち物補正込み）。baseOverride=手入力値（素の実数値）。null/undefinedなら主流型
+function effectiveAtkStat(atkRow, cat, itemMode, baseOverride){
+ let At = (baseOverride!=null) ? baseOverride : (cat==='physical' ? atkRow.atk : atkRow.spa);
  const ab = atkRow.ability;
  if(cat==='physical' && (ab==='ちからもち' || ab==='ヨガパワー')){ At = Math.floor(At*2); }
  else if(cat==='physical' && (ab==='はりきり' || ab==='ごりむちゅう')){ At = Math.floor(At*1.5); }
@@ -311,8 +337,8 @@ function defenderAbilityImmune(moveType, defRow){
  }
  return null;
 }
-// 1体の防御側に対する計算結果一式を返す
-function calcForDefender(atkRow, md, itemMode, defRow, bulk){
+// 1体の防御側に対する計算結果一式を返す。atkOverride=攻撃実数値の手入力（素の値）
+function calcForDefender(atkRow, md, itemMode, defRow, bulk, atkOverride){
  const cat = md.c;
  const moveType = md.t;
  const D = cat==='physical' ? (bulk?defRow.def2:defRow.def) : (bulk?defRow.spd2:defRow.spd);
@@ -322,7 +348,7 @@ function calcForDefender(atkRow, md, itemMode, defRow, bulk){
  if(abReason || eff===0){
   return {immune:true, reason: abReason || 'タイプ無効', eff, cat, D, HP};
  }
- const At = effectiveAtkStat(atkRow, cat, itemMode);
+ const At = effectiveAtkStat(atkRow, cat, itemMode, atkOverride);
  const stab = (atkRow.types||[]).includes(moveType) ? (atkRow.ability==='てきおうりょく'?2.0:1.5) : 1.0;
  const d = rollDamage(md.p, At, D, stab, eff, itemMode==='orb');
  if(!d) return {immune:true, reason:'タイプ無効', eff, cat, D, HP};
@@ -363,6 +389,30 @@ function dmgLineHtml(c){
 let atkIdx = null, atkGroup = [], selMove = null;
 let itemMode = 'none', scarfOn = false;
 let defBulk = 0, defQ = '', defShowAll = false;
+// 手入力の実数値上書き（null=主流型を使用）
+let atkStatOverride = null, speOverride = null;
+
+function curMoveCat(){
+ const md = selMove ? CD.moves[selMove] : null;
+ return md ? md.c : null;
+}
+function defaultAtkStat(){
+ if(atkIdx==null) return null;
+ const r = CD.rows[atkIdx];
+ return curMoveCat()==='special' ? r.spa : r.atk;
+}
+function defaultSpe(){
+ return atkIdx==null ? null : CD.rows[atkIdx].spe;
+}
+// 現在有効な素の攻撃実数値／素早さ（上書きがあればそれ）
+function currentAtkStat(){ return atkStatOverride!=null ? atkStatOverride : defaultAtkStat(); }
+function currentSpe(){ return speOverride!=null ? speOverride : defaultSpe(); }
+function clampStat(v){
+ if(String(v).trim()==='') return null;
+ v = Math.floor(Number(v));
+ if(!isFinite(v)) return null;
+ return Math.min(999, Math.max(1, v));
+}
 
 function autoItemMode(row){
  const top = (row.items_top||[])[0];
@@ -454,6 +504,31 @@ function renderScarfToggle(){
  box.style.display='';
  document.getElementById('scarfBtn').classList.toggle('on', scarfOn);
 }
+function renderStatInputs(setValues){
+ if(setValues===undefined) setValues = true;
+ const box = document.getElementById('statInputs');
+ if(atkIdx==null || !selMove){ box.style.display='none'; return; }
+ box.style.display='';
+ const r = CD.rows[atkIdx];
+ const isSpec = curMoveCat()==='special';
+ document.getElementById('atkStatLabel').textContent = isSpec ? '特攻(C)実数値' : '攻撃(A)実数値';
+ const atkIn = document.getElementById('atkStatIn');
+ const speIn = document.getElementById('speIn');
+ if(setValues){
+  atkIn.value = currentAtkStat();
+  speIn.value = currentSpe();
+ }
+ atkIn.classList.toggle('custom', atkStatOverride!=null);
+ speIn.classList.toggle('custom', speOverride!=null);
+ const statChar = isSpec ? 'C' : 'A';
+ const epIdx = isSpec ? 3 : 1;
+ document.getElementById('atkStatRef').innerHTML =
+  '主流型: '+defaultAtkStat()+'（'+escapeHtml(r.nature)+'・'+statChar+r.spread[epIdx]+'振り）'
+  +(atkStatOverride!=null?'<span class="sreset" id="atkStatReset">主流型に戻す</span>':'');
+ document.getElementById('speRef').innerHTML =
+  '主流型: '+defaultSpe()+'（'+escapeHtml(r.nature)+'・S'+r.spread[5]+'振り）'
+  +(speOverride!=null?'<span class="sreset" id="speReset">主流型に戻す</span>':'');
+}
 
 /* ========== レンダリング：結果テーブル ========== */
 function itemModeLabel(){
@@ -471,8 +546,9 @@ function sBadgeInfo(atkS, defS){
 }
 function renderRow(r, atkRow, md){
  const bulk = defBulk===1;
- const c = calcForDefender(atkRow, md, itemMode, r, bulk);
- const atkS = scarfOn ? Math.floor(atkRow.spe*1.5) : atkRow.spe;
+ const c = calcForDefender(atkRow, md, itemMode, r, bulk, atkStatOverride);
+ const baseS = currentSpe();
+ const atkS = scarfOn ? Math.floor(baseS*1.5) : baseS;
  const defS = bulk ? r.spe2 : r.spe;
  const sb = sBadgeInfo(atkS, defS);
  let sWarn = '';
@@ -516,9 +592,11 @@ function renderResults(){
  defqWrap.style.display = '';
  const atkRow = CD.rows[atkIdx];
  const md = CD.moves[selMove];
+ const statChar = md.c==='special' ? 'C' : 'A';
  headEl.innerHTML = '攻撃側: <b>'+escapeHtml(atkRow.jp)+(atkRow.form!=='通常'?'('+escapeHtml(atkRow.form)+')':'')+'</b>の<b>'+escapeHtml(selMove)
   +'</b>（'+escapeHtml(md.t)+'・威力'+md.p+'・'+(md.c==='physical'?'物理':'特殊')+'） × <b>'+(defBulk?'高耐久型':'主流型')
-  +'</b>　持ち物:'+itemModeLabel()+'　S:'+(scarfOn?'スカーフ込み':'素の値');
+  +'</b>　持ち物:'+itemModeLabel()+'　'+statChar+currentAtkStat()+(atkStatOverride!=null?'(手入力)':'')
+  +'　S'+currentSpe()+(speOverride!=null?'(手入力)':'')+(scarfOn?'×スカーフ':'');
  const rows = targetDefRows();
  if(!rows.length){
   tbody.innerHTML = '<tr class="emptyrow"><td colspan="8">該当するポケモンがいません</td></tr>';
@@ -536,11 +614,14 @@ function selectAttackerRow(idx, group){
  scarfOn = autoScarf(row);
  const em = enabledMoves(row);
  selMove = em.length ? em[0][0] : null;
+ atkStatOverride = null;
+ speOverride = null;
  renderFormToggle();
  renderAtkCard();
  renderMoveGrid();
  renderItemToggle();
  renderScarfToggle();
+ renderStatInputs();
  renderResults();
 }
 function selectAttackerJp(jp){
@@ -571,9 +652,30 @@ document.getElementById('formToggle').addEventListener('click', e=>{
 document.getElementById('mvgrid').addEventListener('click', e=>{
  const b = e.target.closest('button[data-mv]');
  if(!b || b.disabled) return;
+ const prevCat = curMoveCat();
  selMove = b.dataset.mv;
+ if(curMoveCat() !== prevCat) atkStatOverride = null; // 物理⇔特殊で主流型にリセット
  renderMoveGrid();
+ renderStatInputs();
  renderResults();
+});
+document.getElementById('atkStatIn').addEventListener('input', e=>{
+ const v = clampStat(e.target.value);
+ atkStatOverride = (v==null || v===defaultAtkStat()) ? null : v;
+ renderStatInputs(false); // 入力途中はvalueを書き戻さない
+ renderResults();
+});
+document.getElementById('speIn').addEventListener('input', e=>{
+ const v = clampStat(e.target.value);
+ speOverride = (v==null || v===defaultSpe()) ? null : v;
+ renderStatInputs(false);
+ renderResults();
+});
+document.getElementById('atkStatIn').addEventListener('change', ()=>{ renderStatInputs(); });
+document.getElementById('speIn').addEventListener('change', ()=>{ renderStatInputs(); });
+document.getElementById('statInputs').addEventListener('click', e=>{
+ if(e.target.id==='atkStatReset'){ atkStatOverride = null; renderStatInputs(); renderResults(); }
+ else if(e.target.id==='speReset'){ speOverride = null; renderStatInputs(); renderResults(); }
 });
 document.getElementById('itemToggle').addEventListener('click', e=>{
  const b = e.target.closest('button[data-item]');
@@ -662,6 +764,22 @@ function selfTest(){
   const dummyAtk2 = {atk:101, spa:100, ability:'はりきり', types:['ノーマル']};
   check('はりきり：物理At×1.5 floor(151.5→151)', effectiveAtkStat(dummyAtk2,'physical','none'), 151);
   check('ハチマキ/メガネ：At×1.5 floor(151*1.5=226.5→226)', effectiveAtkStat(dummyAtk2,'physical','band'), 226);
+ })();
+
+ // --- (5) 攻撃実数値の手入力上書き ---
+ (function(){
+  // base = floor(22×120×200/100/50)+2 = floor(105.6)+2 = 107 → min=floor(107×85/100)=90, max=107
+  check('手入力At=200: base式 floor(22×威力×200/D/50)+2 の再現 (120/D=100)', rollDamage(120, 200, 100, 1, 1, false), {min:90, max:107});
+  const dummyAtk = {atk:150, spa:80, ability:'', types:[]};
+  check('effectiveAtkStat: 上書き値200が atk150 より優先される', effectiveAtkStat(dummyAtk,'physical','none',200), 200);
+  check('effectiveAtkStat: 上書き値にもハチマキ×1.5適用 (200→300)', effectiveAtkStat(dummyAtk,'physical','band',200), 300);
+  const dummyAb = {atk:100, spa:100, ability:'ちからもち', types:[]};
+  check('effectiveAtkStat: 上書き値にも特性補正適用 (ちからもち200→400)', effectiveAtkStat(dummyAb,'physical','none',200), 400);
+  // calcForDefender の配線確認：override=200 で通し計算
+  const defRow = {def:100, spd:100, hp:200, hp2:200, def2:100, spd2:100, types:['ノーマル'], abilities:[], water_null:false};
+  const md = {t:'かくとう', p:120, c:'physical'}; // かくとう→ノーマル ×2
+  const c = calcForDefender(dummyAtk, md, 'none', defRow, false, 200);
+  check('calcForDefender: override=200 通し計算 (STAB1×eff2)', {min:c.min, max:c.max}, {min:180, max:214});
  })();
 
  const fails = results.filter(r=>!r.ok);
