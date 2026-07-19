@@ -79,6 +79,18 @@ header .extlink a:hover{text-decoration:underline}
 .statbox .sref{font-size:10px;color:var(--mut)}
 .statbox .sreset{color:var(--teal);cursor:pointer;text-decoration:underline;margin-left:4px}
 .statbox .sreset:hover{color:#b8f5e8}
+.modeseg{display:inline-flex;margin-left:6px;border:1px solid var(--line);border-radius:6px;overflow:hidden;vertical-align:-3px}
+.modeseg button{background:var(--panel2);border:none;color:var(--mut);font-size:9.5px;padding:3px 8px;cursor:pointer;font-family:inherit;font-weight:700}
+.modeseg button.on{background:var(--teal);color:#06231d}
+.ptui{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:230px}
+.ptui input[type=number]{background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:7px 8px;font-size:13px;font-weight:800;font-family:inherit;width:62px;font-variant-numeric:tabular-nums}
+.ptui input[type=number]:focus{outline:2px solid var(--teal);outline-offset:1px}
+.ptlab{font-size:10px;color:var(--mut)}
+.natseg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.natseg button{background:var(--panel2);border:none;color:var(--mut);font-size:10px;padding:6px 8px;cursor:pointer;font-family:inherit;font-weight:700}
+.natseg button.on{background:var(--teal);color:#06231d}
+.ptres{font-size:11.5px;color:var(--tx);font-weight:800;width:100%}
+.ptres.custom{color:var(--org)}
 
 #dmghead{font-size:12px;color:var(--mut);margin:14px 0 8px;letter-spacing:.03em;line-height:1.6}
 #dmghead b{color:var(--teal)}
@@ -179,18 +191,33 @@ footer b{color:var(--tx)}
  </div>
  <div class="statinputs" id="statInputs" style="display:none">
   <div class="statbox" id="atkABox">
-   <span class="slab">攻撃(A)実数値</span>
+   <span class="slab">攻撃(A)<span class="modeseg" data-stat="physical"><button type="button" data-mode="real" class="on">実数値</button><button type="button" data-mode="pt">ポイント</button></span></span>
    <input type="number" id="atkAIn" min="1" max="999" step="1" inputmode="numeric" aria-label="攻撃側の攻撃実数値">
+   <div class="ptui" id="atkAPt" style="display:none">
+    <input type="number" id="atkAEp" min="0" max="32" step="1" inputmode="numeric" aria-label="攻撃の能力ポイント"><span class="ptlab">pt</span>
+    <span class="natseg" data-stat="physical"><button type="button" data-nat="up">↑+10%</button><button type="button" data-nat="none">無補正</button><button type="button" data-nat="down">↓-10%</button></span>
+    <div class="ptres" id="atkAPtRes"></div>
+   </div>
    <span class="sref" id="atkARef"></span>
   </div>
   <div class="statbox" id="atkCBox">
-   <span class="slab">特攻(C)実数値</span>
+   <span class="slab">特攻(C)<span class="modeseg" data-stat="special"><button type="button" data-mode="real" class="on">実数値</button><button type="button" data-mode="pt">ポイント</button></span></span>
    <input type="number" id="atkCIn" min="1" max="999" step="1" inputmode="numeric" aria-label="攻撃側の特攻実数値">
+   <div class="ptui" id="atkCPt" style="display:none">
+    <input type="number" id="atkCEp" min="0" max="32" step="1" inputmode="numeric" aria-label="特攻の能力ポイント"><span class="ptlab">pt</span>
+    <span class="natseg" data-stat="special"><button type="button" data-nat="up">↑+10%</button><button type="button" data-nat="none">無補正</button><button type="button" data-nat="down">↓-10%</button></span>
+    <div class="ptres" id="atkCPtRes"></div>
+   </div>
    <span class="sref" id="atkCRef"></span>
   </div>
-  <div class="statbox">
-   <span class="slab">素早さ(S)実数値</span>
+  <div class="statbox" id="speBox">
+   <span class="slab">素早さ(S)<span class="modeseg" data-stat="spe"><button type="button" data-mode="real" class="on">実数値</button><button type="button" data-mode="pt">ポイント</button></span></span>
    <input type="number" id="speIn" min="1" max="999" step="1" inputmode="numeric" aria-label="攻撃側の素早さ実数値">
+   <div class="ptui" id="spePt" style="display:none">
+    <input type="number" id="speEp" min="0" max="32" step="1" inputmode="numeric" aria-label="素早さの能力ポイント"><span class="ptlab">pt</span>
+    <span class="natseg" data-stat="spe"><button type="button" data-nat="up">↑+10%</button><button type="button" data-nat="none">無補正</button><button type="button" data-nat="down">↓-10%</button></span>
+    <div class="ptres" id="spePtRes"></div>
+   </div>
    <span class="sref" id="speRef"></span>
   </div>
  </div>
@@ -417,6 +444,63 @@ let defBulk = 0, defQ = '', defShowAll = false;
 // 手入力の実数値上書き（null=主流型を使用）。カテゴリ別に保持
 let statOvr = {physical:null, special:null};
 let speOverride = null;
+// 実数値入力の方式（'real'=直接入力 / 'pt'=能力ポイント＋性格補正）とポイントモードの状態
+let statInputMode = {physical:'real', special:'real', spe:'real'};
+let ptState = {
+ physical:{ep:0, nat:'none'},
+ special:{ep:0, nat:'none'},
+ spe:{ep:0, nat:'none'}
+};
+
+/* ---- 性格補正表（up/downの対象ステータス。中立5性格は記載なし） ---- */
+const NATURE_MOD = {
+ 'さみしがり':{up:'A',down:'B'}, 'いじっぱり':{up:'A',down:'C'}, 'やんちゃ':{up:'A',down:'D'}, 'ゆうかん':{up:'A',down:'S'},
+ 'ずぶとい':{up:'B',down:'A'}, 'わんぱく':{up:'B',down:'C'}, 'のうてんき':{up:'B',down:'D'}, 'のんき':{up:'B',down:'S'},
+ 'ひかえめ':{up:'C',down:'A'}, 'おっとり':{up:'C',down:'B'}, 'うっかりや':{up:'C',down:'D'}, 'れいせい':{up:'C',down:'S'},
+ 'おだやか':{up:'D',down:'A'}, 'おとなしい':{up:'D',down:'B'}, 'しんちょう':{up:'D',down:'C'}, 'なまいき':{up:'D',down:'S'},
+ 'おくびょう':{up:'S',down:'A'}, 'せっかち':{up:'S',down:'B'}, 'ようき':{up:'S',down:'C'}, 'むじゃき':{up:'S',down:'D'}
+};
+const STAT_CFG = {
+ physical: {letter:'A', idx:1},
+ special:  {letter:'C', idx:3},
+ spe:      {letter:'S', idx:5}
+};
+// 実数値 = floor((2×種族値+31+2×EP)/2)+5 → 性格補正 floor(×1.1)/floor(×0.9)
+function calcStatFromPt(base, ep, nat){
+ let v = Math.floor((2*base + 31 + 2*ep)/2) + 5;
+ if(nat==='up') v = Math.floor(v*1.1);
+ else if(nat==='down') v = Math.floor(v*0.9);
+ return v;
+}
+function natureDefaultFor(row, letter){
+ const nm = NATURE_MOD[row.nature];
+ if(!nm) return 'none';
+ if(nm.up===letter) return 'up';
+ if(nm.down===letter) return 'down';
+ return 'none';
+}
+function defaultPt(stat){
+ if(atkIdx==null) return {ep:0, nat:'none'};
+ const r = CD.rows[atkIdx];
+ const cfg = STAT_CFG[stat];
+ return {ep: r.spread[cfg.idx], nat: natureDefaultFor(r, cfg.letter)};
+}
+function computePtValue(stat){
+ if(atkIdx==null) return null;
+ const r = CD.rows[atkIdx];
+ const cfg = STAT_CFG[stat];
+ return calcStatFromPt(r.base6[cfg.idx], ptState[stat].ep, ptState[stat].nat);
+}
+function defaultRealFor(stat){
+ return stat==='spe' ? defaultSpe() : defaultStatFor(stat);
+}
+// ポイントモードの計算結果を既存の上書きパイプラインへ反映
+function applyPt(stat){
+ const v = computePtValue(stat);
+ const ovr = (v==null || v===defaultRealFor(stat)) ? null : v;
+ if(stat==='spe') speOverride = ovr;
+ else statOvr[stat] = ovr;
+}
 
 function usedCats(){
  const s = [];
@@ -539,6 +623,13 @@ function renderScarfToggle(){
  box.style.display='';
  document.getElementById('scarfBtn').classList.toggle('on', scarfOn);
 }
+const STAT_UI = {
+ physical: {box:'atkABox', input:'atkAIn', ptui:'atkAPt', ep:'atkAEp', ptres:'atkAPtRes', ref:'atkARef', reset:'atkAReset'},
+ special:  {box:'atkCBox', input:'atkCIn', ptui:'atkCPt', ep:'atkCEp', ptres:'atkCPtRes', ref:'atkCRef', reset:'atkCReset'},
+ spe:      {box:'speBox',  input:'speIn',  ptui:'spePt',  ep:'speEp',  ptres:'spePtRes',  ref:'speRef',  reset:'speReset'}
+};
+function statOverrideOf(stat){ return stat==='spe' ? speOverride : statOvr[stat]; }
+function currentValueOf(stat){ return stat==='spe' ? currentSpe() : currentStatFor(stat); }
 function renderStatInputs(setValues){
  if(setValues===undefined) setValues = true;
  const box = document.getElementById('statInputs');
@@ -546,28 +637,37 @@ function renderStatInputs(setValues){
  box.style.display='';
  const r = CD.rows[atkIdx];
  const cats = usedCats();
- const CFG = {
-  physical: {box:'atkABox', input:'atkAIn', ref:'atkARef', reset:'atkAReset', ch:'A', epIdx:1},
-  special:  {box:'atkCBox', input:'atkCIn', ref:'atkCRef', reset:'atkCReset', ch:'C', epIdx:3}
- };
- for(const cat of ['physical','special']){
-  const cfg = CFG[cat];
-  const boxEl = document.getElementById(cfg.box);
-  if(!cats.includes(cat)){ boxEl.style.display='none'; continue; }
+ for(const stat of ['physical','special','spe']){
+  const ui = STAT_UI[stat];
+  const cfg = STAT_CFG[stat];
+  const boxEl = document.getElementById(ui.box);
+  if(stat!=='spe' && !cats.includes(stat)){ boxEl.style.display='none'; continue; }
   boxEl.style.display='';
-  const inEl = document.getElementById(cfg.input);
-  if(setValues) inEl.value = currentStatFor(cat);
-  inEl.classList.toggle('custom', statOvr[cat]!=null);
-  document.getElementById(cfg.ref).innerHTML =
-   '主流型: '+defaultStatFor(cat)+'（'+escapeHtml(r.nature)+'・'+cfg.ch+r.spread[cfg.epIdx]+'振り）'
-   +(statOvr[cat]!=null?'<span class="sreset" id="'+cfg.reset+'">主流型に戻す</span>':'');
+  const mode = statInputMode[stat];
+  const ovr = statOverrideOf(stat);
+  // 方式切替セグメント
+  boxEl.querySelectorAll('.modeseg button').forEach(b=>b.classList.toggle('on', b.dataset.mode===mode));
+  const inEl = document.getElementById(ui.input);
+  const ptEl = document.getElementById(ui.ptui);
+  if(mode==='real'){
+   inEl.style.display='';
+   ptEl.style.display='none';
+   if(setValues) inEl.value = currentValueOf(stat);
+   inEl.classList.toggle('custom', ovr!=null);
+  } else {
+   inEl.style.display='none';
+   ptEl.style.display='';
+   const epEl = document.getElementById(ui.ep);
+   if(setValues) epEl.value = ptState[stat].ep;
+   boxEl.querySelectorAll('.natseg button').forEach(b=>b.classList.toggle('on', b.dataset.nat===ptState[stat].nat));
+   const resEl = document.getElementById(ui.ptres);
+   resEl.textContent = '= 実数値 '+computePtValue(stat);
+   resEl.classList.toggle('custom', ovr!=null);
+  }
+  document.getElementById(ui.ref).innerHTML =
+   '主流型: '+defaultRealFor(stat)+'（'+escapeHtml(r.nature)+'・'+cfg.letter+r.spread[cfg.idx]+'振り）'
+   +(ovr!=null?'<span class="sreset" id="'+ui.reset+'">主流型に戻す</span>':'');
  }
- const speIn = document.getElementById('speIn');
- if(setValues) speIn.value = currentSpe();
- speIn.classList.toggle('custom', speOverride!=null);
- document.getElementById('speRef').innerHTML =
-  '主流型: '+defaultSpe()+'（'+escapeHtml(r.nature)+'・S'+r.spread[5]+'振り）'
-  +(speOverride!=null?'<span class="sreset" id="speReset">主流型に戻す</span>':'');
 }
 
 /* ========== レンダリング：結果テーブル ========== */
@@ -670,6 +770,8 @@ function selectAttackerRow(idx, group){
  selMoves = em.length ? [em[0][0]] : [];
  statOvr = {physical:null, special:null};
  speOverride = null;
+ statInputMode = {physical:'real', special:'real', spe:'real'};
+ ptState = {physical:defaultPt('physical'), special:defaultPt('special'), spe:defaultPt('spe')};
  document.getElementById('mvHint').textContent = '';
  renderFormToggle();
  renderAtkCard();
@@ -727,7 +829,11 @@ document.getElementById('mvgrid').addEventListener('click', e=>{
  // 使わなくなったカテゴリの手入力はリセット（単発モードの物理⇔特殊切替リセットも同ルール）
  const nowCats = usedCats();
  for(const cat of ['physical','special']){
-  if(prevCats.includes(cat) && !nowCats.includes(cat)) statOvr[cat] = null;
+  if(prevCats.includes(cat) && !nowCats.includes(cat)){
+   statOvr[cat] = null;
+   statInputMode[cat] = 'real';
+   ptState[cat] = defaultPt(cat);
+  }
  }
  // 単発⇔技構成モードの切替時、手動変更していなければ持ち物/スカーフの自動推定を更新
  const nowMulti = selMoves.length > 1;
@@ -763,10 +869,61 @@ document.getElementById('speIn').addEventListener('input', e=>{
 document.getElementById('atkAIn').addEventListener('change', ()=>{ renderStatInputs(); });
 document.getElementById('atkCIn').addEventListener('change', ()=>{ renderStatInputs(); });
 document.getElementById('speIn').addEventListener('change', ()=>{ renderStatInputs(); });
+function resetStat(stat){
+ if(stat==='spe') speOverride = null; else statOvr[stat] = null;
+ ptState[stat] = defaultPt(stat);
+ renderStatInputs();
+ renderResults();
+}
+function clampEp(v){
+ if(String(v).trim()==='') return null;
+ v = Math.floor(Number(v));
+ if(!isFinite(v)) return null;
+ return Math.min(32, Math.max(0, v));
+}
 document.getElementById('statInputs').addEventListener('click', e=>{
- if(e.target.id==='atkAReset'){ statOvr.physical = null; renderStatInputs(); renderResults(); }
- else if(e.target.id==='atkCReset'){ statOvr.special = null; renderStatInputs(); renderResults(); }
- else if(e.target.id==='speReset'){ speOverride = null; renderStatInputs(); renderResults(); }
+ // 主流型に戻す
+ if(e.target.id==='atkAReset') return resetStat('physical');
+ if(e.target.id==='atkCReset') return resetStat('special');
+ if(e.target.id==='speReset') return resetStat('spe');
+ // 入力方式の切替（実数値／ポイント）
+ const mb = e.target.closest('.modeseg button');
+ if(mb){
+  const stat = mb.closest('.modeseg').dataset.stat;
+  const mode = mb.dataset.mode;
+  if(statInputMode[stat]!==mode){
+   statInputMode[stat] = mode;
+   if(mode==='pt'){
+    ptState[stat] = defaultPt(stat); // 主流型のEP・性格で初期化→計算結果は主流型実数値と一致
+    applyPt(stat);
+   }
+   renderStatInputs();
+   renderResults();
+  }
+  return;
+ }
+ // 性格補正セグメント
+ const nb = e.target.closest('.natseg button');
+ if(nb){
+  const stat = nb.closest('.natseg').dataset.stat;
+  ptState[stat].nat = nb.dataset.nat;
+  applyPt(stat);
+  renderStatInputs();
+  renderResults();
+  return;
+ }
+});
+[['atkAEp','physical'],['atkCEp','special'],['speEp','spe']].forEach(pair=>{
+ const el = document.getElementById(pair[0]);
+ const stat = pair[1];
+ el.addEventListener('input', ()=>{
+  const v = clampEp(el.value);
+  if(v!=null) ptState[stat].ep = v;
+  applyPt(stat);
+  renderStatInputs(false); // 入力途中はvalueを書き戻さない
+  renderResults();
+ });
+ el.addEventListener('change', ()=>{ renderStatInputs(); });
 });
 document.getElementById('itemToggle').addEventListener('click', e=>{
  const b = e.target.closest('button[data-item]');
@@ -895,6 +1052,28 @@ function selfTest(){
   const ghostDef = {def:100, spd:100, hp:150, hp2:150, def2:100, spd2:100, types:['ひこう'], abilities:[['ふゆう',100]], water_null:false};
   const b4 = bestCalc(dummyAtk, [{name:'じしん',md:jishin}], 'none', ghostDef, false, null);
   check('技構成: 全技無効の相手はimmune表示', b4.immune, true);
+ })();
+
+ // --- (7) ポイントモード（能力ポイント＋性格補正→実数値） ---
+ (function(){
+  const bascu = CD.rows.find(r=>r.slug==='basculegion' && r.form==='通常');
+  // 1. イダイトウA: 種族値112・EP32・無補正 → 164（主流型実数値と一致）
+  check('Pt計算: 種族値112・EP32・無補正 → 164', calcStatFromPt(112, 32, 'none'), 164);
+  if(bascu) check('Pt計算: 主流型EP/性格でイダイトウatkと一致', calcStatFromPt(bascu.base6[1], bascu.spread[1], 'none'), bascu.atk);
+  // 2. EP0・無補正 → 132 ／ EP0・↑ → floor(132×1.1)=145
+  check('Pt計算: EP0・無補正 → 132', calcStatFromPt(112, 0, 'none'), 132);
+  check('Pt計算: EP0・↑+10% → 145', calcStatFromPt(112, 0, 'up'), 145);
+  check('Pt計算: EP0・↓-10% → floor(132×0.9)=118', calcStatFromPt(112, 0, 'down'), 118);
+  // S側: イダイトウ 種族値78・EP32・ようき(↑S) → 143 = 主流型spe
+  if(bascu) check('Pt計算: S 種族値78・EP32・↑ → 143（主流型speと一致）', calcStatFromPt(bascu.base6[5], bascu.spread[5], 'up'), bascu.spe);
+  // 3. ポイント計算値が statOvr 経由でダメージへ反映される
+  //    A=145（EP0↑相当）でじめん100 vs ノーマル(def100/hp200): base=floor(22×100×145/100/50)+2=65 → min55/max65
+  const v = calcStatFromPt(112, 0, 'up'); // 145
+  const dummyAtk = {atk:164, spa:90, ability:'', types:[]};
+  const md = {t:'じめん', p:100, c:'physical'};
+  const defRow = {def:100, spd:100, hp:200, hp2:200, def2:100, spd2:100, types:['ノーマル'], abilities:[], water_null:false};
+  const c = calcForDefender(dummyAtk, md, 'none', defRow, false, {physical:v, special:null});
+  check('Pt値のパイプライン反映: A=145でmin55/max65', {min:c.min, max:c.max}, {min:55, max:65});
  })();
 
  const fails = results.filter(r=>!r.ok);
